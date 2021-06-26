@@ -1,0 +1,446 @@
+// Date and time functions using a DS3231 RTC connected via I2C and Wire lib
+#include <Wire.h>
+#include "RTClib.h"
+
+int p;  //Multiplex delay time
+int a;  //anti poising delay time
+RTC_DS3231 rtc;
+
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+
+/**********************************************/
+const int buttonPin = A6;    // the number of the pushbutton pin
+int buttonState;             // the current reading from the input pin
+int lastButtonState = HIGH;   // the previous reading from the input pin
+const int buttonPin2 = A7;    // the number of the pushbutton pin
+int buttonState2;             // the current reading from the input pin
+int lastButtonState2 = HIGH;   // the previous reading from the input pin
+
+
+// the following variables are unsigned longs because the time, measured in
+// milliseconds, will quickly become a bigger number than can be stored in an int.
+unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
+unsigned long lastDebounceTime2 = 0;  // the last time the output pin was toggled
+unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
+/************************************************/
+
+//---
+#define DS3231_I2C_ADDRESS 0x68
+// Convert normal decimal numbers to binary coded decimal
+byte decToBcd(byte val)
+{
+  return( (val/10*16) + (val%10) );
+}
+// Convert binary coded decimal to normal decimal numbers
+byte bcdToDec(byte val)
+{
+  return( (val/16*10) + (val%16) );
+}
+//---
+
+void setup() {
+  // put your setup code here, to run once:
+    //--------------------------------------------------------------------------------------------
+
+    //pinMode(buttonPin, INPUT);
+    pinMode(buttonPin,INPUT_PULLUP);
+    pinMode(buttonPin2,INPUT_PULLUP);
+   /*
+    Serial.begin(9600);
+    if (rtc.lostPower()) {
+      Serial.println("RTC lost power, lets set the time!");
+      // following line sets the RTC to the date & time this sketch was compiled
+      rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+      // This line sets the RTC with an explicit date & time, for example to set
+      // January 21, 2014 at 3am you would call:
+      rtc.adjust(DateTime(2020, 12, 07, 19, 26, 0));
+    }
+    delay(3000); // wait for console opening
+    if (! rtc.begin()) {
+      Serial.println("Couldn't find RTC");
+      while (1);
+    }
+    */
+  //--------------------------------------------------------------------------------------------
+
+  //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));  //set time to compile time
+
+  p=2;  //Multiplex delay time
+  a=1000; //anti poisoning time
+  
+  pinMode(13, OUTPUT); //LED on Arduino
+  
+  pinMode(12, OUTPUT);  // 74141 A
+  pinMode(11, OUTPUT);  // 74141 B
+  pinMode(10, OUTPUT);  // 74141 C
+  pinMode(9, OUTPUT);   // 74141 D
+
+  pinMode(0, OUTPUT);
+  pinMode(1, OUTPUT);  //anode Nixie1
+  pinMode(2, OUTPUT);  //anode Nixie2
+  pinMode(3, OUTPUT);  //anode Nixie3
+  pinMode(4, OUTPUT);  //anode Nixie4
+  pinMode(5, OUTPUT);  //anode Nixie5
+  pinMode(6, OUTPUT);  //anode Nixie6
+  
+  pinMode(7, OUTPUT);  //seconds
+  pinMode(8, OUTPUT);  //Led
+  
+  digitalWrite(7,1);  //LED on Arduino ON
+  digitalWrite(8,1);
+  digitalWrite(13,1);
+    
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0); 
+  
+  digitalWrite(1,0);  //anode
+  digitalWrite(2,0);  //anode
+  digitalWrite(3,0);  //anode
+  digitalWrite(4,0);  //anode
+  digitalWrite(5,0);  //anode
+  digitalWrite(6,0);  //anode
+  
+  digitalWrite(7,1);  //seconds
+  digitalWrite(8,1);  //seconds
+  //Serial.begin(9600);
+  Wire.begin();  //sets up the I2C
+}
+
+void loop() { 
+
+  /*************************************************************************/
+    // read the state of the switch into a local variable:
+  int reading = digitalRead(buttonPin);
+  int reading2 = digitalRead(buttonPin2);
+
+  // check to see if you just pressed the button
+  // (i.e. the input went from LOW to HIGH), and you've waited long enough
+  // since the last press to ignore any noise:
+
+  // If the switch changed, due to noise or pressing:
+  if (reading != lastButtonState) {
+    // reset the debouncing timer
+    lastDebounceTime = millis();
+  }
+  
+  if (reading2 != lastButtonState2) {
+    // reset the debouncing timer
+    lastDebounceTime2 = millis();
+  }
+  
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    // whatever the reading is at, it's been there for longer than the debounce
+    // delay, so take it as the actual current state:
+
+    // if the button state has changed:
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      // only toggle the LED if the new button state is HIGH
+      if (buttonState == LOW) {
+        //ledState = !ledState;
+        /***************************************************************************/
+          byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+          // retrieve data from DS3231
+          readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
+          if (minute >= 59)
+          {
+            minute=0;
+            /*if(hour >= 12) {hour=1;} else*/{hour+=1;}
+          }
+          else
+          {
+           minute +=1; 
+          }
+          
+          // set the time here:
+          // DS3231 seconds, minutes, hours, day, date, month, year
+          setDS3231time(second, minute, hour, dayOfWeek, dayOfMonth, month, year);
+          /********************************************************************************/
+      }
+    }
+  }
+  /**********************************************************/
+    if ((millis() - lastDebounceTime2) > debounceDelay) {
+    // whatever the reading is at, it's been there for longer than the debounce
+    // delay, so take it as the actual current state:
+
+    // if the button state has changed:
+    if (reading2 != buttonState2) {
+      buttonState2 = reading2;
+
+      // only toggle the LED if the new button state is HIGH
+      if (buttonState2 == LOW) {
+        //ledState = !ledState;
+        /***************************************************************************/
+          byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+          // retrieve data from DS3231
+          readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
+          if (minute <= 1)
+          {
+            minute=59;
+            /*if(hour >= 12) {hour=1;} else*/{hour-=1;}
+          }
+          else
+          {
+           minute -=1; 
+          }
+          
+          // set the time here:
+          // DS3231 seconds, minutes, hours, day, date, month, year
+          setDS3231time(second, minute, hour, dayOfWeek, dayOfMonth, month, year);
+          /********************************************************************************/
+      }
+    }
+  }
+  /**********************************************************************/
+
+
+
+  // save the reading. Next time through the loop, it'll be the lastButtonState:
+  lastButtonState = reading;
+  lastButtonState2 = reading2;
+  /*************************************************************************************/
+  
+  
+  DateTime now = rtc.now();  //read time from rtc  into now vairable of type DatetTime
+  int hours = now.hour(); //Serial.println(hours);
+  int minutes = now.minute();//Serial.println(minutes);
+  int seconds = now.second();//Serial.println(seconds);
+  
+  //if hours >12 then -12
+  //if hours < 10 then output nixie 1 to zero and nixie 2 = hours (switch)
+  //  else nixie1 = 1 and nixie2=hours -10
+  if(hours > 12)
+  {
+    hours=hours-12;  //change to 12 hour format
+  }
+  if(hours < 10)
+  {
+     nixie1on();     send0();     nixie1off();
+     nixie2on();  selectDigit(hours); nixie2off();     
+  }
+  else 
+  {
+    nixie1on();  send1();  nixie1off(); 
+    nixie2on();  selectDigit(hours-10); nixie2off();
+  }
+  
+//if minutes < 10 nixie3 = 0 and nixie4 = minutes
+//  else nixie3 = minutes/10 and nixie4 = minutes%10 (switch)
+
+  if(minutes < 10)
+  {
+    nixie3on();  send0();  nixie3off();
+    nixie4on();  selectDigit(minutes);  nixie4off(); 
+  }
+  else
+  {
+    nixie3on();  selectDigit((int)minutes/10);  nixie3off();
+    nixie4on();  selectDigit(minutes%10);  nixie4off(); 
+  }
+
+  //if seconds < 10 nixie5 = 0 and nixie6 = minutes
+  //else nixie5 = minutes/10 and nixie6 = minutes%10 (switch)
+  ///* 
+  if(seconds < 10)
+  {
+    nixie5on();  send0();  nixie5off();
+    nixie6on();  selectDigit(seconds);  nixie6off(); 
+  }
+  else
+  {
+    nixie5on();  selectDigit((int)seconds/10);  nixie5off();
+    nixie6on();  selectDigit(seconds%10);  nixie6off(); 
+  }
+  //*/
+
+  //call anti poisoning at this time twice a day
+  if(hours == 6 && minutes == 30 && seconds == 1)
+  {
+     cathodeAntiPoising();
+  }
+
+
+}
+void send0()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0);delay(p); //0
+}
+void send1()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,1);delay(p); //1
+}
+void send2()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,1);digitalWrite(12,0);delay(p); //2
+}
+void send3()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,1);digitalWrite(12,1);delay(p); //3
+}
+void send4()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,0);digitalWrite(12,0);delay(p); //4
+}
+void send5()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,0);digitalWrite(12,1);delay(p); //5
+}
+void send6()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,1);digitalWrite(12,0);delay(p); //6
+}
+void send7()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,1);digitalWrite(12,1);delay(p); //7
+}
+void send8()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,1);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0);delay(p); //8
+}
+void send9()  //send binary code to 74141 to activate digit
+{
+  digitalWrite(9,1);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,1);delay(p); //9
+}
+
+
+  
+void nixie1on()
+{
+  digitalWrite(1,1);  //anode on
+}
+void nixie2on()
+{
+  digitalWrite(2,1);  //anode on
+}
+void nixie3on()
+{
+  digitalWrite(3,1);  //anode on
+}
+void nixie4on()
+{
+  digitalWrite(4,1);  //anode on
+}
+void nixie5on()
+{
+  digitalWrite(5,1);  //anode on
+}
+void nixie6on()
+{
+  digitalWrite(6,1);  //anode on
+}
+
+
+
+
+void nixie1off()
+{
+  digitalWrite(1,0);  //anode off
+} 
+void nixie2off()
+{
+  digitalWrite(2,0);  //anode off
+}
+void nixie3off()
+{
+  digitalWrite(3,0);  //anode off
+}
+void nixie4off()
+{
+ digitalWrite(4,0);  //anode  off
+}
+void nixie5off()
+{
+ digitalWrite(5,0);  //anode  off
+}
+void nixie6off()
+{
+ digitalWrite(6,0);  //anode  off
+}
+  
+/* Select a digit 0-9 and call the appropriate send function */
+void selectDigit(int d)  
+{
+ switch(d)
+ {
+  case 0: send0(); break;
+  case 1: send1(); break;
+  case 2: send2(); break;
+  case 3: send3(); break;
+  case 4: send4(); break;
+  case 5: send5(); break;
+  case 6: send6(); break;
+  case 7: send7(); break;
+  case 8: send8(); break;
+  case 9: send9(); break;
+ } 
+}
+ 
+void setDS3231time(byte second, byte minute, byte hour, byte dayOfWeek, byte
+dayOfMonth, byte month, byte year)
+{
+  // sets time and date data to DS3231
+  Wire.beginTransmission(DS3231_I2C_ADDRESS);
+  Wire.write(0); // set next input to start at the seconds register
+  Wire.write(decToBcd(second)); // set seconds
+  Wire.write(decToBcd(minute)); // set minutes
+  Wire.write(decToBcd(hour)); // set hours
+  Wire.write(decToBcd(dayOfWeek)); // set day of week (1=Sunday, 7=Saturday)
+  Wire.write(decToBcd(dayOfMonth)); // set date (1 to 31)
+  Wire.write(decToBcd(month)); // set month
+  Wire.write(decToBcd(year)); // set year (0 to 99)
+  Wire.endTransmission();
+}
+void readDS3231time(byte *second,
+byte *minute,
+byte *hour,
+byte *dayOfWeek,
+byte *dayOfMonth,
+byte *month,
+byte *year)
+{
+  Wire.beginTransmission(DS3231_I2C_ADDRESS);
+  Wire.write(0); // set DS3231 register pointer to 00h
+  Wire.endTransmission();
+  Wire.requestFrom(DS3231_I2C_ADDRESS, 7);
+  // request seven bytes of data from DS3231 starting from register 00h
+  *second = bcdToDec(Wire.read() & 0x7f);
+  *minute = bcdToDec(Wire.read());
+  *hour = bcdToDec(Wire.read() & 0x3f);
+  *dayOfWeek = bcdToDec(Wire.read());
+  *dayOfMonth = bcdToDec(Wire.read());
+  *month = bcdToDec(Wire.read());
+  *year = bcdToDec(Wire.read());
+}  
+  
+void cathodeAntiPoising()  //cycle nixie 1 and 2 through all numbers
+{
+  digitalWrite(6,0);  //turn off nixie
+  digitalWrite(5,0);  //turn off nixie
+  
+  digitalWrite(8,1);  //anode
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0);delay(a); //0
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,1);delay(a); //1
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,1);digitalWrite(12,0);delay(a); //2
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,1);digitalWrite(12,1);delay(a); //3
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,0);digitalWrite(12,0);delay(a); //4
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,0);digitalWrite(12,1);delay(a); //5
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,1);digitalWrite(12,0);delay(a); //6
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,1);digitalWrite(12,1);delay(a); //7
+  digitalWrite(9,1);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0);delay(a); //8
+  digitalWrite(9,1);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,1);delay(a); //9
+  digitalWrite(8,0);  //anode
+  
+  digitalWrite(7,1);  //anode
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0);delay(a); //0
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,1);delay(a); //1
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,1);digitalWrite(12,0);delay(a); //2
+  digitalWrite(9,0);digitalWrite(10,0);digitalWrite(11,1);digitalWrite(12,1);delay(a); //3
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,0);digitalWrite(12,0);delay(a); //4
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,0);digitalWrite(12,1);delay(a); //5
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,1);digitalWrite(12,0);delay(a); //6
+  digitalWrite(9,0);digitalWrite(10,1);digitalWrite(11,1);digitalWrite(12,1);delay(a); //7
+  digitalWrite(9,1);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,0);delay(a); //8
+  digitalWrite(9,1);digitalWrite(10,0);digitalWrite(11,0);digitalWrite(12,1);delay(a); //9
+  digitalWrite(7,0);  //anode 
+}
